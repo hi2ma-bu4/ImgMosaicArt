@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="UTF-8">
+	<title>ImgMosaicArtXs</title>
+	<script type="text/javascript" src="jquery.min.js"></script>
+	<script type="text/javascript" src="IMAxs.js"></script>
+	<script type="text/javascript" src="AlignColors.js"></script>
+	<script type="text/javascript" src="Ciede.js"></script>
+	<script type="text/javascript" src="MinecraftBlock-linkImg.js"></script>
+</head>
+<body>
+	<input type="file" id="example" accept="image/*"><br />
+	<input type="button" value="Start" onclick="javascript:encode();" /><br />
+	<canvas id="MyCanvas"></canvas>
+	<img id="img" style="display:none;image-rendering: pixelated;">
+	<div id="msg"></div>
+	<canvas id="SubCanvas" width="1" height="1"></canvas>
+	<canvas id="AnsCanvas1"></canvas>
+	<canvas id="AnsCanvas2"></canvas>
+	<canvas id="AnsCanvas3"></canvas>
+	<canvas id="AnsCanvas4"></canvas>
+	<canvas id="AnsCanvas5"></canvas>
+	<canvas id="AnsCanvas6"></canvas>
+	<canvas id="AnsCanvas7"></canvas>
+	<canvas id="AnsCanvas8"></canvas>
+	<canvas id="AnsCanvas9"></canvas>
+	<script>
+/* ############################################################################ */
+/*				変更可能場所					*/
+/* ############################################################################ */
+		//全てのブラウザで「--allow-file-access-from-files」をつける
+		var canvasSize = "auto";		//キャンバスサイズ(長辺)["auto"で最大サイズ]
+		const pieceImgSize = {x:16, y:16};	//dotのサイズ
+		const ansScale	= 1;			//結果の縮尺[検証中]
+		const LPalette	= MCLPalette(0, 0);	//使用パレット(Link)
+		const mode	= 9;
+		const subMode	= 9;			//[現在未使用]
+		var   MaxSize	= 268435456;	//作成可能最大サイズ
+		const CutMode	= 1;			//カット場所
+/* mode = 0:ユークリッド距離(RGB)	(高速,色相、明度を重視する)	[かなり正確]	{緑,ピンク,水色:不正確}
+(subMode=)1:ユークリッド距離(HSV)	(低速,明度を少し重要する)	[まぁまぁ正確]	{全体的に不正確}
+	  2:ユークリッド距離(XYZ)	(低速,彩度を少し重要する)	[まぁまぁ正確]	{ピンク:かなり不正確}
+	  3:三角関数(HSV円錐)		(低速,画像を少し平坦化する)	[正確ではあまりない]{全体的に少々不正確}
+	  4:CIE74色素式			(低速,白を少し重視する)		[正確ではあまりない]{全体的に不正確}
+	  5:CIEDE2000色素式		(遅い,白を余り重視しない)	[正確ではあまりない]{全体的に不正確}
+	  6:ユークリッド距離(RGB&XYZ)	(中速,{mode:0}の緑修正版)	[かなり正確]	{ピンク,水色:不正確}
+	  7:mode5 & mode6		(中速,{mode:6}のピンク微修正版)	[とても正確]	{ピンク,水色:不正確}
+	  8:mode0,1,2,3,4の平均値	(遅い,オススメはしない)		[正確ではない]	{ほぼ全て不正確}
+	  9:mode3 & mode7		(中速,{mode:7}の水色微修正版)	[凄く正確]	{ピンク:不正確}
+*/
+/* MaxSize = 36929929		:[結]ペイント3Dで結合可能最大サイズ
+	     268435456		:[作]IMA1sで作成可能最大サイズ
+	     715669504		:[結]ペイントで結合可能最大サイズ
+	     268435456 * 4	:[作]IMA4sで作成可能最大サイズ
+	     268435456 * 5	:[作]{CutMode:0}で安定して作成可能最大サイズ
+	     268435456 * 9	:[作]IMA9sで作成可能最大サイズ
+	     268435456 * 16	:[作]IMA16sで作成可能最大サイズ
+*/
+/* CutMode = 0	:全て
+	     1～:指定番号(左上から右下に向かって)
+	例:IMA9sの場合
+	1,2,3
+	4,5,6
+	7,8,9
+*/
+/* ############################################################################ */
+		var CSA = 0,
+			Csize;
+		const canvas = document.getElementById("MyCanvas"),
+			ctx = canvas.getContext("2d");
+
+		$("#example").on("change", function (e) {
+			const reader = new FileReader();
+			reader.onload = function (e) {
+				$("#img").attr("src", e.target.result);
+			}
+			reader.readAsDataURL(e.target.files[0]);
+			if (canvas.getContext) {
+				var image = document.getElementById("img");
+				image.onload = function () {
+					ctx.clearRect(0, 0, canvas.width, canvas.height);
+					var scaleTmp,
+						CSQ = Math.sqrt(MaxSize / (image.width * image.height)),
+						MCS = ((image.width > image.height ? image.width / pieceImgSize.x : image.height / pieceImgSize.y) * CSQ)|0;
+					if (canvasSize == "auto" || CSA) {
+						CSA = 1
+						canvasSize = MCS;
+					}
+					if (image.width > image.height) {
+						canvas.width = canvasSize;
+						canvas.height = image.height * (canvasSize / image.width);
+						scaleTmp = canvasSize / image.width;
+					}
+					else
+					{
+						canvas.width = image.width * (canvasSize / image.height);
+						canvas.height = canvasSize;
+						scaleTmp = canvasSize / image.height;
+					}
+					ctx.scale(scaleTmp, scaleTmp);
+					ctx.drawImage(image, 0, 0);
+					Csize = canvas.width * canvas.height * pieceImgSize.x * pieceImgSize.y;
+					console.log('サイズ:' + Csize + 'px\n'+
+						'残り:' + (MaxSize - Csize) + 'px\n'+
+						'現在canvasSize:' + canvasSize + '\n' +
+						'最大canvasSize:' + MCS);
+				};
+			}
+		});
+		function encode() {
+			Csize = canvas.width * canvas.height * pieceImgSize.x * pieceImgSize.y;
+			if (Csize  > MaxSize) {
+				alert("サイズが大きすぎます!");
+			}
+			else
+			{
+				AutoIMArt("MyCanvas", "SubCanvas", "AnsCanvas", LPalette, pieceImgSize, ansScale, mode, CutMode);
+			}
+		}
+	</script>
+	</body>
+</html>
